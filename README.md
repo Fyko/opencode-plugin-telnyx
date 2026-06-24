@@ -1,129 +1,166 @@
-# opencode-telnyx-auth
+# @fyko/opencode-plugin-telnyx
 
-OpenCode plugin that adds Telnyx as a provider, supports `opencode auth login`, auto-registers supported Telnyx-hosted chat models, and works around Telnyx's `max_completion_tokens` + tools incompatibility.
+OpenCode plugin that adds [Telnyx](https://telnyx.com/products/inference) as a provider.
 
-## What it does
+## What It Does
 
-- registers a `telnyx` provider via `@ai-sdk/openai-compatible`
-- adds `telnyx` to `opencode auth login`
-- reads the Telnyx API key from either:
-  - `TELNYX_API_KEY`
-  - `~/.local/share/opencode/auth.json` via `opencode auth login`
-- fetches available models from `https://api.telnyx.com/v2/ai/models` at startup
-- filters out pass-through providers like `openai/*`, `anthropic/*`, `google/gemini-*`, and `xai-org/*`
-- strips `maxOutputTokens` before requests so Telnyx accepts tool-enabled runs
+- Registers a `telnyx` provider via `@ai-sdk/openai-compatible`
+- Adds `telnyx` to `opencode auth login`
+- Reads the Telnyx API key from either `TELNYX_API_KEY` or OpenCode's stored auth file
+- Fetches available models from `https://api.telnyx.com/v2/ai/models` at startup
+- Validates Telnyx model payloads with ArkType before registering them
+- Maps Telnyx pricing metadata into OpenCode model costs when the API reports `USD` per `1M_tokens`
+- Filters out known pass-through providers like `openai/*`, `anthropic/*`, `google/gemini-*`, and `xai-org/*`
+- Strips `maxOutputTokens` before Telnyx requests so tool-enabled runs are accepted
 
-## Setup
+## Install
 
-1. Clone this repo somewhere local.
-2. Install dependencies and build it:
+```bash
+opencode plugin @fyko/opencode-plugin-telnyx --global
+```
 
-   ```bash
-   bun install
-   bun run build
-   ```
+Or add it manually to `~/.config/opencode/opencode.json`:
 
-3. Add the plugin to your `~/.config/opencode/opencode.json`:
+```json
+{
+  "plugin": [
+    "@fyko/opencode-plugin-telnyx"
+  ]
+}
+```
 
-   ```json
-   {
-     "plugin": [
-       "file:///absolute/path/to/opencode-telnyx-auth"
-     ]
-   }
-   ```
+## Auth
 
-4. Log in with your Telnyx API key:
+Log in with your Telnyx API key:
 
-   ```bash
-   opencode auth login --provider telnyx --method "API Key"
-   ```
+```bash
+opencode auth login --provider telnyx --method "API Key"
+```
 
-   Or set an env var instead:
+Or set an environment variable:
 
-   ```bash
-   export TELNYX_API_KEY="YOUR_KEY"
-   ```
-
-5. Verify the credential is present:
-
-   ```bash
-   opencode auth list
-   ```
-
-6. Run a model:
-
-   ```bash
-   opencode run --model 'telnyx/moonshotai/Kimi-K2.5' 'Say hello in one sentence.'
-   ```
-
-## How auth works
+```bash
+export TELNYX_API_KEY="YOUR_KEY"
+```
 
 Auth precedence is:
 
 1. `TELNYX_API_KEY`
-2. stored `telnyx` API credential in `~/.local/share/opencode/auth.json`
+2. Stored `telnyx` API credential in `~/.local/share/opencode/auth.json`
 
-`opencode auth login` stores the key in OpenCode's normal auth store, so this behaves like a native provider instead of relying on hardcoded config.
+Verify the provider is connected:
 
-## Model registration
+```bash
+opencode auth list
+```
+
+## Usage
+
+List registered Telnyx models:
+
+```bash
+opencode models telnyx --verbose
+```
+
+Run a model:
+
+```bash
+opencode run --model 'telnyx/moonshotai/Kimi-K2.5' 'say hello in one sentence.'
+```
+
+The model list is dynamic. Use `opencode models telnyx` to see what Telnyx currently exposes for your account.
+
+## Model Registration
 
 At startup the plugin calls:
 
-- `GET https://api.telnyx.com/v2/ai/models`
+```text
+GET https://api.telnyx.com/v2/ai/models
+```
 
-It registers Telnyx-hosted text generation models automatically. Pass-through providers are intentionally excluded because they need their own upstream credentials and should use their own native provider paths.
+It registers text generation models after validating the response shape with ArkType. Model context limits, output limits, vision support, and pricing come from the Telnyx API response.
 
-## Why the plugin exists
+Models with empty or unexpected pricing metadata are still registered, but without a `cost` field.
+
+## Why the Request Hook Exists
 
 Telnyx rejects requests that include both:
 
 - function tools
 - `max_completion_tokens` / `max_tokens`
 
-OpenCode normally sends tools and an output token cap together. The plugin fixes that by unsetting `maxOutputTokens` for the `telnyx` provider before the SDK builds the request.
+OpenCode normally sends tools and an output token cap together. This plugin fixes that by unsetting `maxOutputTokens` for the `telnyx` provider before the SDK builds the request.
 
-## Build
+## Development
+
+For local development:
 
 ```bash
-bun run build
+bun install
+bun run test
 bun run typecheck
+bun run build
 ```
+
+Add the local plugin path:
+
+```json
+{
+  "plugin": [
+    "file:///absolute/path/to/opencode-plugin-telnyx"
+  ]
+}
+```
+
+The build uses:
+
+```bash
+bun build src/index.ts --outdir dist --target node --minify --packages external
+```
+
+`dist/index.js` stays small by keeping runtime dependencies external. Install dependencies before loading a local checkout.
+
+## Publishing
+
+This package is set up for npm trusted publishing through GitHub Actions OIDC.
+
+The publish workflow runs on version tags:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+Before the workflow can publish, configure npm trusted publishing for:
+
+- package: `@fyko/opencode-plugin-telnyx`
+- repository: `Fyko/opencode-plugin-telnyx`
+- workflow: `publish.yml`
+
+The workflow does not use an `NPM_TOKEN`; npm receives an OIDC identity token from GitHub Actions.
 
 ## Troubleshooting
 
-### `Unknown provider "telnyx"`
+### `unknown provider "telnyx"`
 
-The plugin is not loaded. Check the `file:///...` path in `opencode.json` and rebuild the plugin.
+The plugin is not loaded. Run:
 
-### No Telnyx models show up
+```bash
+opencode plugin @fyko/opencode-plugin-telnyx --global
+```
 
-The API key is missing or invalid. Run:
+Or check the `plugin` entry in `opencode.json`.
+
+### No Telnyx Models Show Up
+
+The API key is missing, invalid, or the models endpoint failed. Run:
 
 ```bash
 opencode auth list
 ```
 
-or set `TELNYX_API_KEY` and retry.
+Or set `TELNYX_API_KEY` and retry.
 
-### A small-context model fails while larger models work
+### A Small-Context Model Fails While Larger Models Work
 
 Some smaller models cannot fit OpenCode's full tool list and system prompt into their effective prompt budget. This is model-specific, not a plugin auth issue.
-
-<details>
-<summary>Agent notes (humans can ignore)</summary>
-
-- local build/install commands assume `bun` is installed
-- package manager is `bun`; use `bun install`, `bun run build`, and `bun run typecheck`
-- runtime dependency is `@opencode-ai/plugin`
-- local build-time dependencies are `typescript` and `@types/node`
-- OpenCode loads the built plugin from `dist/`, so cloning the repo alone is not enough; it must be built first
-- a valid Telnyx API key is required either via `TELNYX_API_KEY` or `opencode auth login`
-- provider id is `telnyx`
-- auth hook method is `API Key`
-- auth precedence is env first, then stored auth.json key
-- model list is dynamic; do not hardcode model ids in downstream automation
-- pass-through prefixes are intentionally excluded: `openai/`, `anthropic/`, `google/gemini-`, `xai-org/`
-- the Telnyx compatibility fix is in the `chat.params` hook and only unsets `maxOutputTokens`
-
-</details>
