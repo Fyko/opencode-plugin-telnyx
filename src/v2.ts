@@ -76,7 +76,7 @@ export const telnyxV2Setup: Plugin.Plugin["setup"] = async (ctx) => {
   await ctx.catalog.transform((catalog) => {
     catalog.provider.update(PROVIDER_ID, (provider) => {
       provider.name = "Telnyx"
-      provider.package = "@opencode-ai/ai/providers/openai-compatible"
+      provider.package = "aisdk:@ai-sdk/openai-compatible"
       provider.settings = { baseURL: OPENAI_BASE }
     })
 
@@ -86,19 +86,19 @@ export const telnyxV2Setup: Plugin.Plugin["setup"] = async (ctx) => {
   })
 
   // Telnyx rejects requests that pair function tools with an output token
-  // cap, so drop the cap before the provider request goes out.
-  await ctx.session.hook("http.request", async (event) => {
+  // cap. The AI SDK models used here don't pass through `http.request`, so
+  // wrap the language model and drop `maxOutputTokens` before `doGenerate`
+  // / `doStream` turn it into `max_tokens` / `max_completion_tokens`.
+  await ctx.aisdk.hook("language", (event) => {
     if (event.model.providerID !== PROVIDER_ID) return
-    try {
-      const body = await event.request.json()
-      if (typeof body !== "object" || body === null) return
-      if ("max_tokens" in body || "max_completion_tokens" in body) {
-        delete body.max_tokens
-        delete body.max_completion_tokens
-        event.request = new Request(event.request, { body: JSON.stringify(body) })
-      }
-    } catch {
-      // Non-JSON body; leave the request untouched.
+
+    const language = event.language ?? (event.sdk?.languageModel?.(event.model.modelID) as typeof event.language)
+    if (!language) return
+
+    event.language = {
+      ...language,
+      doGenerate: (options) => language.doGenerate({ ...options, maxOutputTokens: undefined }),
+      doStream: (options) => language.doStream({ ...options, maxOutputTokens: undefined }),
     }
   })
 }
