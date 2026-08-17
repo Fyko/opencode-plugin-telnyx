@@ -140,8 +140,9 @@ Telnyx rejects requests that include both:
 OpenCode normally sends tools and an output token cap together. This plugin fixes that:
 
 - **V1** uses a `chat.params` hook to unset `maxOutputTokens` before the SDK builds the request.
-- **V2** uses an `http.request` hook to delete `max_tokens` / `max_completion_tokens` from the
-  provider request body.
+- **V2** wraps the AI SDK language model via an `aisdk.language` hook, dropping
+  `maxOutputTokens` before `doGenerate` / `doStream` turn it into `max_tokens` /
+  `max_completion_tokens`.
 
 ## Development
 
@@ -178,8 +179,8 @@ This package is set up for npm trusted publishing through GitHub Actions OIDC.
 The publish workflow runs on version tags:
 
 ```bash
-git tag v0.2.0
-git push origin v0.2.0
+git tag v0.2.1
+git push origin v0.2.1
 ```
 
 Before the workflow can publish, configure npm trusted publishing for:

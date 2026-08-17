@@ -1,7 +1,7 @@
 {
   "name": "@fyko/opencode-plugin-telnyx",
   "description": "Telnyx auth and provider plugin for OpenCode",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",

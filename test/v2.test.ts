@@ -104,7 +104,7 @@ async function setupPlugin(): Promise<CapturedState> {
         })
       },
     },
-    session: {
+    aisdk: {
       hook: async (name: string, callback: (event: any) => Promise<void> | void) => {
         state.hooks[name] = callback
       },
@@ -121,7 +121,7 @@ test("registers the telnyx provider with the openai-compatible package", async (
   const provider = state.providers.get("telnyx")
   expect(provider).toBeDefined()
   expect(provider.name).toBe("Telnyx")
-  expect(provider.package).toBe("@opencode-ai/ai/providers/openai-compatible")
+  expect(provider.package).toBe("aisdk:@ai-sdk/openai-compatible")
   expect(provider.settings.baseURL).toBe("https://api.telnyx.com/v2/ai/openai")
 })
 
@@ -236,51 +236,89 @@ test("vision models advertise image input capabilities", async () => {
   })
 })
 
-test("http.request hook strips max tokens for telnyx requests", async () => {
+test("language hook wraps the model and strips maxOutputTokens for telnyx", async () => {
   const state = await setupPlugin()
-  const hook = state.hooks["http.request"]
+  const hook = state.hooks["language"]
   expect(hook).toBeDefined()
 
-  const request = new Request("https://api.telnyx.com/v2/ai/openai/chat/completions", {
-    method: "POST",
-    headers: { "content-type": "application/json", authorization: "Bearer test-key" },
-    body: JSON.stringify({
-      model: "vendor/model",
-      tools: [{ type: "function" }],
-      max_tokens: 2048,
-      stream: true,
-    }),
-  })
+  const calls: Array<{ method: string; options: any }> = []
+  const language = {
+    modelId: "vendor/model",
+    specificationVersion: "v3",
+    provider: "telnyx",
+    supportedUrls: {},
+    doGenerate: async (options: any) => {
+      calls.push({ method: "doGenerate", options })
+      return { content: [], finishReason: "stop" }
+    },
+    doStream: async (options: any) => {
+      calls.push({ method: "doStream", options })
+      return { stream: new ReadableStream() }
+    },
+  }
 
   let event = {
-    model: { providerID: "telnyx", id: "vendor/model" },
-    request,
+    model: { providerID: "telnyx", modelID: "vendor/model", id: "vendor/model" },
+    sdk: { languageModel: () => language },
+    options: {},
+    language,
   }
   await hook!(event)
 
-  const body = await event.request.json()
-  expect(body.max_tokens).toBeUndefined()
-  expect(body.max_completion_tokens).toBeUndefined()
-  expect(body.tools).toBeDefined()
-  expect(event.request.headers.get("authorization")).toBe("Bearer test-key")
+  expect(event.language).toBeDefined()
+  await event.language.doGenerate({ prompt: [], maxOutputTokens: 2048 })
+  await event.language.doStream({ prompt: [], maxOutputTokens: 4096 })
+
+  expect(calls).toHaveLength(2)
+  expect(calls[0].options.maxOutputTokens).toBeUndefined()
+  expect(calls[1].options.maxOutputTokens).toBeUndefined()
 })
 
-test("http.request hook leaves other providers untouched", async () => {
+test("language hook constructs and wraps the model when none is provided", async () => {
   const state = await setupPlugin()
-  const hook = state.hooks["http.request"]
+  const hook = state.hooks["language"]
 
-  const request = new Request("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ model: "gpt-5", max_tokens: 2048 }),
-  })
+  const calls: any[] = []
+  const language = {
+    doGenerate: async (options: any) => {
+      calls.push(options)
+      return { content: [], finishReason: "stop" }
+    },
+    doStream: async (options: any) => {
+      calls.push(options)
+      return { stream: new ReadableStream() }
+    },
+  }
 
   let event = {
-    model: { providerID: "openai", id: "gpt-5" },
-    request,
+    model: { providerID: "telnyx", modelID: "vendor/model", id: "vendor/model" },
+    sdk: { languageModel: (id: string) => language },
+    options: {},
+    language: undefined,
   }
   await hook!(event)
 
-  const body = await event.request.json()
-  expect(body.max_tokens).toBe(2048)
+  expect(event.language).toBeDefined()
+  await event.language.doGenerate({ prompt: [], maxOutputTokens: 2048 })
+  expect(calls[0].maxOutputTokens).toBeUndefined()
+})
+
+test("language hook leaves other providers untouched", async () => {
+  const state = await setupPlugin()
+  const hook = state.hooks["language"]
+
+  const language = {
+    doGenerate: async (options: any) => ({ content: [], finishReason: "stop" }),
+    doStream: async (options: any) => ({ stream: new ReadableStream() }),
+  }
+
+  let event = {
+    model: { providerID: "openai", modelID: "gpt-5", id: "gpt-5" },
+    sdk: { languageModel: () => language },
+    options: {},
+    language,
+  }
+  await hook!(event)
+
+  expect(event.language).toBe(language)
 })
