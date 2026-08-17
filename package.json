@@ -1,10 +1,13 @@
 {
   "name": "@fyko/opencode-plugin-telnyx",
   "description": "Telnyx auth and provider plugin for OpenCode",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
+  "exports": {
+    ".": "./dist/index.js"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Fyko/opencode-plugin-telnyx.git"
@@ -23,11 +26,11 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@opencode-ai/plugin": "^1.2.27",
-    "@opencode-ai/sdk": "^1.14.19",
     "arktype": "^2.2.1"
   },
   "devDependencies": {
+    "@opencode-ai/plugin": "beta",
+    "@opencode-ai/sdk": "^1.18.5",
     "@types/node": "^22.0.0",
     "typescript": "^5.9.3"
   }
